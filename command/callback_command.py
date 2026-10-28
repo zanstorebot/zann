@@ -27,7 +27,7 @@ from uuid import uuid4
 from html import escape
 from clients import bot, alice
 from config import (API_BOTCHAX, OWNER_ID, API_MAELYN, BOT_NAME, COPY_ID, HELPABLE,
-                    LOG_SELLER, LOG_SUPPORT, SUDO_OWNERS, USENAME_OWNER)
+                    LOG_SELLER, SUDO_OWNERS, USENAME_OWNER)
 from database import dB, state
 from helpers.helprich import build_help_text, help_rich_on
 from helpers import (ButtonUtils, build_help_rich, build_help_list_rich, emo, InlineRichProxy, Emoji, Message, Spotify, TokenReferal, Tools,
@@ -181,7 +181,7 @@ async def contact_admins(client, message):
                 ],
             ]
         )
-        await pesan.copy(LOG_SUPPORT, reply_markup=buttons)
+        await pesan.copy(LOG_SELLER, reply_markup=buttons)
         return await kirim_rich(user_id, "sukses", f"Pesan anda terkirim: {full_name}")
     except asyncio.TimeoutError:
         return await kirim_rich(user_id, "info", "Sesi berakhir, silakan coba lagi.")
