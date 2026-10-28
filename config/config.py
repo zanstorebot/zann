@@ -51,7 +51,7 @@ API_BOTCHAX = os.environ.get("API_BOTCHAX", "zanstore")
 
 API_MAELYN = os.environ.get("API_MAELYN", "sk_ms_d3d4e5861511d73ddd7bda4c958d0daabd5d5793638e120c")
 
-BOT_NAME = os.environ.get("BOT_NAME", "ZanStore")
+BOT_NAME = os.environ.get("BOT_NAME", "AutoPayzan")
 
 DB_NAME = os.environ.get("DB_NAME", "ZandB")
 
@@ -86,7 +86,7 @@ OWNER_ID = int(os.environ.get("OWNER_ID", 8546938757))
 
 LOG_SELLER = int(os.environ.get("LOG_SELLER", -1004461472898))
 
-LOG_BACKUP = int(os.environ.get("LOG_BACKUP", -1003730704677))
+LOG_BACKUP = int(os.environ.get("LOG_BACKUP", -1004461472898))
 
 SPOTIFY_CLIENT_ID = os.environ.get(
     "SPOTIFY_CLIENT_ID", "e09ff7a19b204b62b6048a73bd605fe6"
