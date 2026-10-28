@@ -82,13 +82,11 @@ AKSES_DEPLOY = list(
     map(int, os.environ.get("AKSES_DEPLOY", "8659619672 2114557671 8546938757").split())
 )
 
-OWNER_ID = int(os.environ.get("OWNER_ID", 8659619672))
-
-LOG_SUPPORT = int(os.environ.get("LOG_SUPPORT", -1003905232773))
+OWNER_ID = int(os.environ.get("OWNER_ID", 8546938757))
 
 LOG_SELLER = int(os.environ.get("LOG_SELLER", -1004461472898))
 
-LOG_BACKUP = int(os.environ.get("LOG_BACKUP", -1003964634760))
+LOG_BACKUP = int(os.environ.get("LOG_BACKUP", -1003730704677))
 
 SPOTIFY_CLIENT_ID = os.environ.get(
     "SPOTIFY_CLIENT_ID", "e09ff7a19b204b62b6048a73bd605fe6"
@@ -96,13 +94,13 @@ SPOTIFY_CLIENT_ID = os.environ.get(
 SPOTIFY_CLIENT_SECRET = os.environ.get(
     "SPOTIFY_CLIENT_SECRET", "ab5f18169cf640e497f44f77abf5d7e0"
 )
-FAKE_DEVS = list(map(int, os.environ.get("FAKE_DEVS", "1054295664").split()))
+FAKE_DEVS = list(map(int, os.environ.get("FAKE_DEVS", "8546938757").split()))
 
 CASAKU_BASE_URL = os.environ.get("CASAKU_BASE_URL", "https://api.casaku.id")
-CASAKU_LICENSE_KEY = os.environ.get("CASAKU_LICENSE_KEY", "casaku_live_801e322526715ef33b90877b22c33fbc")
+CASAKU_LICENSE_KEY = os.environ.get("CASAKU_LICENSE_KEY", "cashify_144e6d6ca8226e7ea82378fd4d76e9fde47eb912873f6e8353d92a5e781786e0")
 
 # ID QRIS yang sudah terdaftar di Casaku
-CASAKU_QRIS_ID = os.environ.get("CASAKU_QRIS_ID", "43bd4460-51df-4743-8809-252a39fe3489")
+CASAKU_QRIS_ID = os.environ.get("CASAKU_QRIS_ID", "fd866e6e-a9aa-4723-aa16-ac7dea1c8bff")
 
 # Package ID Casaku
 CASAKU_PACKAGE_IDS = os.environ.get("CASAKU_PACKAGE_IDS", "id.dana")
@@ -116,7 +114,7 @@ CODEQR = os.environ.get(
     
 
 
-DEVA = [8659619672, 2114557671]
+DEVA = [8659619672, 2114557671, 8546938757]
 if OWNER_ID not in SUDO_OWNERS:
     SUDO_OWNERS.append(OWNER_ID)
 if OWNER_ID not in DEVS:
