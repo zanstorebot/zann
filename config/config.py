@@ -26,16 +26,16 @@ DICT_BUTTON = {}
 
 COPY_ID = {}
 
-NAMA_CORE = "AliceDevs Core v3.7"
-WAJIB_JOIN = ["asupanmujeh", "alicesuprot", "alicedevspro"]
-USENAME_OWNER = os.environ.get("USENAME_OWNER", "@alicedevscodes")
-API_ID = int(os.environ.get("API_ID", 39310745))
-MAX_BOT = int(os.environ.get("MAX_BOT", 10))
+NAMA_CORE = "ZanStore Core v3.9"
+WAJIB_JOIN = ["Lspacefams", "alicedevspro", "alicesuprot", "zannstre"]
+USENAME_OWNER = os.environ.get("USENAME_OWNER", "@fauzanthrq")
+API_ID = int(os.environ.get("API_ID", 38396733))
+MAX_BOT = int(os.environ.get("MAX_BOT", 50))
 
-API_HASH = os.environ.get("API_HASH", "701402147029318491542a1fb6362017")
+API_HASH = os.environ.get("API_HASH", "de8ba979c9f9ad1c0e74e7d8a5560c3a")
 
 BOT_TOKEN = os.environ.get(
-    "BOT_TOKEN", "8790964508:AAGUpbi5il4HD__THlxBxhdkfm6YugXE1lc"
+    "BOT_TOKEN", "8964070527:AAG-vesNO93FkcjcNDhRO_heb4my9COPlz8"
 )
 
 BOT_ID = BOT_TOKEN.split(":")[0]
@@ -51,9 +51,9 @@ API_BOTCHAX = os.environ.get("API_BOTCHAX", "zanstore")
 
 API_MAELYN = os.environ.get("API_MAELYN", "sk_ms_d3d4e5861511d73ddd7bda4c958d0daabd5d5793638e120c")
 
-BOT_NAME = os.environ.get("BOT_NAME", "AliceCore")
+BOT_NAME = os.environ.get("BOT_NAME", "ZanStore")
 
-DB_NAME = os.environ.get("DB_NAME", "DevsBot")
+DB_NAME = os.environ.get("DB_NAME", "ZandB")
 
 URL_LOGO = os.environ.get("URL_LOGO", "https://u.pone.rs/tlszrldr.jpg")
 
@@ -64,7 +64,7 @@ SUDO_OWNERS = list(
         int,
         os.environ.get(
             "SUDO_OWNERS",
-            "8659619672 2114557671",
+            "8659619672 2114557671 8546938757",
         ).split(),
     )
 )
@@ -73,13 +73,13 @@ DEVS = list(
         int,
         os.environ.get(
             "DEVS",
-            "8659619672 2114557671",
+            "8659619672 2114557671 8546938757",
         ).split(),
     )
 )
 
 AKSES_DEPLOY = list(
-    map(int, os.environ.get("AKSES_DEPLOY", "8659619672 2114557671").split())
+    map(int, os.environ.get("AKSES_DEPLOY", "8659619672 2114557671 8546938757").split())
 )
 
 OWNER_ID = int(os.environ.get("OWNER_ID", 8659619672))
