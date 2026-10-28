@@ -267,7 +267,7 @@ def _welcome_blocks(user_mention):
                     [cell([emo(5298609030321691620, "✅"), " Anti Ucast"])],
                     [cell([emo(5220195537520711716, "✅"), " Afk effects"])],
                     [cell([emo(5796185041717433060, "✅"), " Fitur Ai Ready"])],
-                    [cell([emo(5170574646478635764, "💰"), " Rp. 10.000,-"])],
+                    [cell([emo(5170574646478635764, "💰"), " Rp. 15.000,-"])],
                 ],
             ),
         ),
@@ -281,7 +281,7 @@ def _welcome_blocks(user_mention):
         ),
         table(
             [
-                [cell(["AliceDevs Core v3.14 ", emo(5456140674028019486, "⚡")], is_header=True, align="center")],
+                [cell(["zanstore Core v3.14 ", emo(5456140674028019486, "⚡")], is_header=True, align="center")],
             ],
         ),
         divider(),
