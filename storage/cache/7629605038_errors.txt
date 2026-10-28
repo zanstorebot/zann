@@ -1,0 +1,16 @@
+<emoji id="5019523782004441717">❌</emoji>**Error failed broadcast:**
+SlowmodeWait or gc di timer -1002386212057
+ChatWriteForbidden or lu dimute -1002169606864
+ChatWriteForbidden or lu dimute -1004361035915
+ChatWriteForbidden or lu dimute -1001842379497
+ChatWriteForbidden or lu dimute -1002379088122
+ChatWriteForbidden or lu dimute -1003861524284
+ChatWriteForbidden or lu dimute -1002178467698
+ChatWriteForbidden or lu dimute -1003997707262
+ChatWriteForbidden or lu dimute -1004482063448
+ChatWriteForbidden or lu dimute -1003451940591
+Telegram says: [400 CHAT_RESTRICTED] - You can't send messages in this chat, you were restricted. (caused by "messages.SendMessage")
+ChatWriteForbidden or lu dimute -1004234885607
+Telegram says: [400 CHAT_RESTRICTED] - You can't send messages in this chat, you were restricted. (caused by "messages.SendMessage")
+Telegram says: [400 CHAT_RESTRICTED] - You can't send messages in this chat, you were restricted. (caused by "messages.SendMessage")
+Telegram says: [400 CHAT_RESTRICTED] - You can't send messages in this chat, you were restricted. (caused by "messages.SendMessage")
