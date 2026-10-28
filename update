@@ -1,0 +1,35 @@
+#!/bin/sh
+set -e
+
+BRANCH="master"
+COMMIT_MSG="upload"
+
+echo "==> Menambahkan semua perubahan..."
+git add -A
+
+if git diff --cached --quiet; then
+    echo "==> Tidak ada perubahan baru untuk di-commit."
+else
+    echo "==> Membuat commit..."
+    git commit -m "$COMMIT_MSG"
+fi
+
+echo "==> Mengambil perubahan dari GitHub..."
+git fetch origin
+
+if git merge-base --is-ancestor origin/$BRANCH HEAD; then
+    echo "==> Tidak ada perubahan baru di GitHub."
+else
+    echo "==> Ada perubahan di GitHub, melakukan merge..."
+    if ! git merge origin/$BRANCH --no-edit --no-rebase; then
+        echo "==> Terjadi konflik merge. Merge dibatalkan."
+        git merge --abort
+        echo "==> Selesaikan konflik secara manual, lalu jalankan: sh update"
+        exit 1
+    fi
+fi
+
+echo "==> Mengirim ke GitHub..."
+git push origin $BRANCH
+
+echo "==> Update selesai."
