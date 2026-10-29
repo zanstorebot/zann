@@ -21,111 +21,7 @@ from logs import logger
 
 logger_cache = {}
 reply_cache = []
-_deleted_locks = {}
 
-
-def _deleted_lock(owner):
-    return _deleted_locks.setdefault(owner, asyncio.Lock())
-
-
-def _deleted_var(owner, chat_id):
-    peer = f"n{abs(chat_id)}" if chat_id < 0 else f"p{chat_id}"
-    return f"GLDEL2_{owner}_{peer}"
-
-
-async def _cache_deleted(client, message, data):
-    owner, mid, chat_id = int(client.me.id), int(message.id), int(message.chat.id)
-    log = await dB.get_var(owner, "GRUPLOG")
-    if not log or getattr(message, "business_connection_id", None):
-        return
-
-    common = message.chat.type in (enums.ChatType.PRIVATE, enums.ChatType.GROUP)
-    sender = message.sender_chat or message.from_user
-    sender_name = (
-        getattr(sender, "title", None)
-        or " ".join(filter(None, (
-            getattr(sender, "first_name", None),
-            getattr(sender, "last_name", None),
-        )))
-        or str(data.get("from_user", "Unknown"))
-    )
-    record = {
-        **data, "schema": 2, "client": owner, "chat_id": chat_id,
-        "message_id": mid, "log_id": int(log), "sender_name": sender_name,
-        "scope": "common" if common else "channel",
-    }
-
-    async with _deleted_lock(owner):
-        await dB.set_var(mid, _deleted_var(owner, chat_id), record)
-        if common:
-            await dB.set_var(mid, f"GLDEL2_COMMON_{owner}", {
-                "schema": 2, "client": owner,
-                "chat_id": chat_id, "message_id": mid,
-            })
-
-
-async def _take_deleted(client, message, log):
-    if getattr(message, "business_connection_id", None):
-        return None
-
-    owner, mid = int(client.me.id), int(message.id)
-    event_chat = getattr(message, "chat", None)
-
-    async with _deleted_lock(owner):
-        try:
-            if event_chat is not None:
-                chat_id = int(event_chat.id)
-            else:
-                index = await dB.get_var(mid, f"GLDEL2_COMMON_{owner}")
-                if not isinstance(index, dict):
-                    return None
-                if (
-                    index.get("schema") != 2
-                    or int(index["client"]) != owner
-                    or int(index["message_id"]) != mid
-                ):
-                    return None
-                chat_id = int(index["chat_id"])
-
-            key = _deleted_var(owner, chat_id)
-            data = await dB.get_var(mid, key)
-            if not isinstance(data, dict) or data.get("schema") != 2:
-                return None
-            if (
-                int(data["client"]), int(data["chat_id"]),
-                int(data["message_id"]), int(data["log_id"]),
-            ) != (owner, chat_id, mid, int(log)):
-                return None
-            if data.get("scope") not in ("common", "channel"):
-                return None
-            if event_chat is None and data["scope"] != "common":
-                return None
-            if data.get("type") not in ("Private", "Group"):
-                return None
-        except (KeyError, TypeError, ValueError):
-            return None
-
-        await dB.remove_var(mid, key)
-        if data["scope"] == "common":
-            await dB.remove_var(mid, f"GLDEL2_COMMON_{owner}")
-        return data
-
-
-
-def _e(emoji_id, alt="💬"):
-    return f'<emoji id="{emoji_id}">{alt}</emoji>'
-
-
-EM_NOTIF = _e(5472239203590888751, "📨")
-EM_NAMA_GRUP = _e(6028453664744542677, "👥")
-EM_ID_GRUP = _e(5260561650213220533, "🆔")
-EM_FROM = _e(5971889748615105853, "👤")
-EM_FROM_ID = _e(5260561650213220533, "🆔")
-EM_PESAN = _e(5391247205698912640, "💬")
-EM_TIPE = _e(5258361295517806281, "📎")
-EM_TANGGAL = _e(5283187967425268516, "📅")
-EM_DELETED = _e(6028352582689231001, "🗑")
-EM_EDITED = _e(5258215635996908355, "✏️")
 
 async def get_reply_data(reply):
     data = await dB.get_var(reply.id, "REPLY")
@@ -213,10 +109,10 @@ async def curi_data_user(client, message):
                     id_penerima = logger_cache.get(client.me.id)["id_penerima"]
                     send_ms = logger_cache.get(client.me.id)["pengirim"]
                     caption = f"""#USER_LOG
-Dari: {send_ms}
-<b>Untuk: {receive}
-ID Pengirim: {send_id}
+<b>Penerima: {receive}
 ID Penerima: {id_penerima}
+Pengirim: {send_ms}
+ID Pengirim: {send_id}
 Text: {message.text or message.caption or ''}</b>"""
                     bot_send_to = await Tools.send_media(bot, msgtype)
                     if msgtype not in (
@@ -241,55 +137,70 @@ Text: {message.text or message.caption or ''}</b>"""
     except Exception as er:
         logger.error(f"{str(er)}. Line: {sys.exc_info()[-1].tb_lineno}")
 
-
-EMOJI_CURI = 6255910249362885846
-EMOJI_PESAN = 5244536513051516987
-EMOJI_DARI = 5316727448644103237
-EMOJI_UNTUK = 5256143829672672750
-EMOJI_DARI2 = 5258043150110301407
-EMOJI_UNTUK2 = 5258336354642697821
-
-
 async def curi_data_user2(client, message):
-    """Log teks dari sesama pengguna userbot ke LOG_BACKUP."""
     try:
-        if message.chat.type != enums.ChatType.PRIVATE:
-            return
-        # Hanya proses pesan teks
-        if not message.text:
-            return
-        dia = message.sender_chat or message.from_user
-        if not dia:
-            return
-        nama_dia = (
-            message.sender_chat.title
-            if message.sender_chat
-            else message.from_user.first_name
-        )
-        rpk = f'<a href="tg://openmessage?user_id={dia.id}">{nama_dia}</a>'
-        gw = f'<a href="tg://openmessage?user_id={client.me.id}">{client.me.first_name}</a>'
-        emo1 = f'<emoji id="{EMOJI_CURI}">💬</emoji>'
-        emo2 = f'<emoji id="{EMOJI_PESAN}">💬</emoji>'
-        emo3 = f'<emoji id="{EMOJI_DARI}">💬</emoji>'
-        emo4 = f'<emoji id="{EMOJI_UNTUK}">💬</emoji>'
-        emo5 = f'<emoji id="{EMOJI_DARI2}">💬</emoji>'
-        emo6 = f'<emoji id="{EMOJI_UNTUK2}">💬</emoji>'
-        caption = (
-            f"{emo1} <b>#CURI_PESAN!</b>\n\n"
-            f"{emo2}<blockquote>{rpk}: <code>{message.text}</code></blockquote>\n\n"
-            f"{emo3} <b>Dari:</b> {rpk}\n"
-            f"{emo4} <b>Untuk:</b> {gw}\n"
-            f"{emo5} <b>ID Pengirim:</b> <code>{dia.id}</code>\n"
-            f"{emo6} <b>ID Penerima:</b> <code>{client.me.id}</code>"
-        )
-        await bot.send_message(LOG_BACKUP, caption)
+        if message.chat.type == enums.ChatType.PRIVATE:
+            dia = message.sender_chat or message.from_user
+            sender_name = message.from_user.first_name
+            nama_dia = (
+                message.sender_chat.title
+                if message.sender_chat
+                else message.from_user.first_name
+            )
+            rpk = f"[{nama_dia}](tg://openmessage?user_id={dia.id})"
+            gw = f"[{client.me.first_name}](tg://openmessage?user_id={client.me.id})"
+            data = {
+                "id_pengirim": dia.id,
+                "penerima": gw,
+                "pengirim": rpk,
+                "id_penerima": client.me.id,
+            }
+            logger_cache[client.me.id] = data
+            type_mapping = {
+                "text": (Tools.Types.TEXT.value, message.text),
+                "photo": (Tools.Types.PHOTO.value, message.photo),
+                "voice": (Tools.Types.VOICE.value, message.voice),
+                "audio": (Tools.Types.AUDIO.value, message.audio),
+                "video": (Tools.Types.VIDEO.value, message.video),
+                "video_note": (Tools.Types.VIDEO_NOTE.value, message.video_note),
+                "animation": (Tools.Types.ANIMATION.value, message.animation),
+                "sticker": (Tools.Types.STICKER.value, message.sticker),
+                "document": (Tools.Types.DOCUMENT.value, message.document),
+                "contact": (Tools.Types.CONTACT.value, message.contact),
+            }
+            for key, (msgtype, msgtype2) in type_mapping.items():
+                if msgtype2:
+                    send_id = logger_cache.get(client.me.id)["id_pengirim"]
+                    receive = logger_cache.get(client.me.id)["penerima"]
+                    id_penerima = logger_cache.get(client.me.id)["id_penerima"]
+                    send_ms = logger_cache.get(client.me.id)["pengirim"]
+                    caption = f"""#USER_LOG
+<b>Penerima: {receive}
+ID Penerima: {id_penerima}
+Pengirim: {send_ms}
+ID Pengirim: {send_id}
+Text: {message.text or message.caption or ''}</b>"""
+                    bot_send_to = await Tools.send_message(bot, msgtype2)
+                    if msgtype2 not in (                                           
+                        Tools.Types.CONTACT.value,
+                        Tools.Types.ANIMATED_STICKER.value,
+                    ):
+                        file_path2 = await client.send_message(text)
+                        if msgtype2 == Tools.Types.VIDEO_NOTE.value:
+                            uh = await bot_send_to(LOG_BACKUP, file_path2)
+                            return await bot.send_message(
+                                LOG_BACKUP,
+                                caption,
+                                reply_to_message_id=uh.id,
+                            )
+                        else:
+                            await bot_send_to(LOG_BACKUP, file_path2, caption=caption)
+                            if os.path.exists(file_path2):
+                                os.remove(file_path2)
+                            return
     except Exception as er:
-        logger.info(
-            f"FROM: {getattr(message.from_user, 'first_name', 'Unknown')} "
-            f"TO: @{client.me.username}: {str(er)}"
-        )
-
-
+        logger.info(f"FROM: {sender_name} TO: @{client.me.username}: {str(er)}. ")
+      
 
 async def message_mapping(client, message, userid):
     type_mapping = {
@@ -345,7 +256,7 @@ async def message_mapping(client, message, userid):
         except Exception:
             for key, (msgtype, media) in type_mapping_users.items():
                 if media:
-                    client_send_to = await Tools.send_media(client, msgtype)
+                    client_send_to = await Tools.send_media(client, msgtype)                              
                     file_path = await client.download_media(media)
                     send = await client_send_to(
                         bot.id, file_path, caption=message.caption or ""
@@ -380,7 +291,6 @@ async def message_mapping(client, message, userid):
 
 async def LOGS_GROUP(client, message):
     await curi_data_user(client, message)
-    await curi_data_user2(client, message)  # ← log teks ke LOG_BACKUP
     log = await dB.get_var(client.me.id, "GRUPLOG")
     if not log or message.chat.id == 777000:
         return
@@ -427,20 +337,20 @@ async def LOGS_GROUP(client, message):
             "message_type": message_type,
             "message_link": message_link,
         }
-        await _cache_deleted(client, message, data_deleted)
-        button = ikb([[("Link Message", f"{message_link}", "url", ButtonStyle.SUCCESS, "6030333284167192486")]])
+        await dB.set_var(message.id, "DELETED", data_deleted)
+        button = ikb([[("Link Message", f"{message_link}", "url", ButtonStyle.SUCCESS)]])
         text = f"""
-{EM_NOTIF} <b><u>Group Notifications</u></b>
+📨 <b><u>Group Notifications</u></b>
 
-{EM_NAMA_GRUP} <b>Name Group: {message.chat.title}</b>
-{EM_ID_GRUP} <b>ID Group:</b> <code>{message.chat.id}</code>
-{EM_FROM} <b>From User: {user_link}</b>
+• <b>Name Group: {message.chat.title}</b>
+• <b>ID Group:</b> <code>{message.chat.id}</code>
+• <b>From User: {user_link}</b>
 
-{EM_FROM_ID} <b>From User ID: `{from_user.id}`</b>
-{EM_PESAN} <b>Message:</b> <blockquote>{txt}</blockquote>
-{EM_TIPE} <b>Message Type:</b> <u><b>{message_type}</b></u>
+• <b>From User ID: `{from_user.id}`</b>
+• <b>Message:</b> <blockquote>{txt}</blockquote>
+• <b>Message Type:</b> <u><b>{message_type}</b></u>
 
-{EM_TANGGAL} <b>Date:</b> <b>{tanggal}</b>
+• <b>Date:</b> <b>{tanggal}</b>
 """
         try:
             if message_type in ["sticker", "video_note"]:
@@ -543,17 +453,17 @@ async def LOGS_GROUP(client, message):
             "message_type": message_type,
             "message_link": message_link,
         }
-        await _cache_deleted(client, message, data_deleted)
+        await dB.set_var(message.id, "DELETED", data_deleted)
         text = f"""
-{EM_NOTIF} <b><u>Private Notifications</u></b>
+📨 <b><u>Private Notifications</u></b>
 
-{EM_FROM} <b>From: {user_link}</b>
-{EM_FROM_ID} <b>From User ID: <code>{from_user.id}</code></b>
+• <b>From: {user_link}</b>
+• <b>From User ID: <code>{from_user.id}</code></b>
 
-{EM_PESAN} <b>Message:</b> <blockquote>{txt}</blockquote>
-{EM_TIPE} <b>Message Type:</b> <u><b>{message_type}</b></u>
+• <b>Message:</b> <blockquote>{txt}</blockquote>
+• <b>Message Type:</b> <u><b>{message_type}</b></u>
 
-{EM_TANGGAL} <b>Date:</b> <b>{tanggal}</b>
+• <b>Date:</b> <b>{tanggal}</b>
 """
         if send_function is not None:
             return await send_to_pm(
@@ -573,7 +483,7 @@ async def LOGS_GROUP(client, message):
 async def send_to_pm(
     client, message, text, log, message_link, media_type, file_path, send_function
 ):
-    button = ikb([[("Link Message", f"{message_link}", "url", ButtonStyle.SUCCESS, "6030333284167192486")]])
+    button = ikb([[("Link Message", f"{message_link}", "url", ButtonStyle.SUCCESS)]])
     try:
         await asyncio.sleep(0.5)
         if media_type == "text":
@@ -634,6 +544,7 @@ async def send_to_pm(
         )
     except (ChannelInvalid, ChannelPrivate, PeerIdInvalid):
         logger.error(f"Invalid log channel: {traceback.format_exc()}")
+
         return
 
 
@@ -720,23 +631,24 @@ async def EDITED(client, message):
                 else f"tg://openmessage?user_id={from_user.id}&message_id={message.id}"
             )
             text = f"""
-{EM_EDITED} #<b><u>Edited Message</u></b>
+#<b><u>Edited Message</u></b>
 
-{EM_FROM} <b>From: {user_link}</b>
-{EM_FROM_ID} <b>From User ID: `{from_user.id}`</b>
+• <b>From: {user_link}</b>
+• <b>From User ID: `{from_user.id}`</b>
 
-{EM_PESAN} <b>Message Text:</b> <blockquote>{txt}</blockquote>
+• <b>Message Text:</b> <blockquote>{txt}</blockquote>
 
 • <b>Reactions:</b> <blockquote>{emoji}|{emoji_count}</blockquote>
 
-{EM_TANGGAL} <b>Date:</b> <b>{tanggal}</b>"""
-            button = ikb([[("Link Message", f"{message_link}", "url", ButtonStyle.SUCCESS, "6030333284167192486")]])
+• <b>Date:</b> <b>{tanggal}</b>"""
+            button = ikb([[("Link Message", f"{message_link}", "url", ButtonStyle.SUCCESS)]])
             try:
                 return await bot.send_message(
                     int(log), text, disable_web_page_preview=True, reply_markup=button
                 )
             except Exception:
                 logger.error(f"Error send delete message: {traceback.format_exc()}")
+
                 return
     else:
         edited = await dB.get_var(from_user.id, "BEFORE")
@@ -756,15 +668,15 @@ async def EDITED(client, message):
             else f"tg://openmessage?user_id={from_user.id}&message_id={message.id}"
         )
         text = f"""
-{EM_EDITED} #<b><u>Edited Message</u></b>
+#<b><u>Edited Message</u></b>
 
-{EM_FROM} <b>From: {user_link}</b>
-{EM_FROM_ID} <b>From User ID: `{from_user.id}`</b>
+• <b>From: {user_link}</b>
+• <b>From User ID: `{from_user.id}`</b>
 
-{EM_PESAN} <b>Before:</b> <blockquote>{edited}</blockquote>
-{EM_PESAN} <b>After:</b> <blockquote>{txt}</blockquote>
+• <b>Before:</b> <blockquote>{edited}</blockquote>
+• <b>After:</b> <blockquote>{txt}</blockquote>
 
-{EM_TANGGAL} <b>Date:</b> <b>{tanggal}</b>"""
+• <b>Date:</b> <b>{tanggal}</b>"""
         button = ikb([[("Link Message", f"{message_link}", "url", ButtonStyle.SUCCESS)]])
         try:
             return await bot.send_message(
@@ -772,6 +684,7 @@ async def EDITED(client, message):
             )
         except Exception:
             logger.error(f"Error send delete message: {traceback.format_exc()}")
+
             return
 
 
@@ -803,7 +716,7 @@ async def ADD_ME(client, message):
                             [
                                 (
                                     f"Added Bye",
-                                    f"tg://openmessage?user_id={message.from_user.id}", ButtonStyle.PRIMARY, "5256143829672672750",
+                                    f"tg://openmessage?user_id={message.from_user.id}", ButtonStyle.PRIMARY,
                                     "url",
                                 )
                             ]
@@ -852,7 +765,7 @@ async def KICK_ME(client, message):
                         [
                             (
                                 f"Kicked Bye",
-                                f"tg://openmessage?user_id={message.from_user.id}", ButtonStyle.DANGER, "6028068273034104293",
+                                f"tg://openmessage?user_id={message.from_user.id}", ButtonStyle.DANGER,
                                 "url",
                             )
                         ]
@@ -864,75 +777,71 @@ async def KICK_ME(client, message):
 
 
 async def DELETED(client, messages):
-    from html import escape
-
-    owner = int(client.me.id)
-    log = await dB.get_var(owner, "GRUPLOG")
+    log = await dB.get_var(client.me.id, "GRUPLOG")
     if not log:
         return
-
-    try:
-        log = int(log)
-    except (TypeError, ValueError):
-        return
-
     for message in messages:
-        try:
-            data = await _take_deleted(client, message, log)
-            if not data:
-                continue
-
-            sender_id = int(data["from_user"])
-            sender_name = escape(str(data.get("sender_name") or sender_id)[:150])
-            user_link = (
-                f'<a href="tg://user?id={sender_id}">{sender_name}</a>'
-                if sender_id > 0 else sender_name
-            )
-            msg_text = str(data.get("message_text") or "")
-            if len(msg_text) > 2000:
-                msg_text = msg_text[:2000] + "…"
-            msg_text = escape(msg_text)
-            message_type = escape(str(data.get("message_type") or "Unknown")[:50])
-            tanggal = datetime.now(timezone("Asia/Jakarta")).strftime("%Y-%m-%d %H:%M:%S")
-
-            lines = [
-                f'{EM_DELETED} <b><u>Deleted Message in {data["type"]}</u></b>',
-            ]
-            if data["type"] == "Group":
-                lines.extend((
-                    f'{EM_NAMA_GRUP} <b>Name Group:</b> {escape(str(data.get("title") or "")[:150])}',
-                    f'{EM_ID_GRUP} <b>ID Group:</b> <code>{int(data["chat_id"])}</code>',
-                ))
-            lines.extend((
-                f"{EM_FROM} <b>From User:</b> {user_link}",
-                f"{EM_FROM_ID} <b>From User ID:</b> <code>{sender_id}</code>",
-                f"{EM_PESAN} <b>Message:</b> <blockquote>{msg_text}</blockquote>",
-                f"{EM_TIPE} <b>Message Type:</b> <u>{message_type}</u>",
-                f"{EM_TANGGAL} <b>Date:</b> {tanggal}",
-            ))
-
-            message_link = data.get("message_link")
-            button = ikb([[("Link Message", message_link, "url", ButtonStyle.SUCCESS, "6030333284167192486")]]) if message_link else None
-
-            for attempt in range(3):
-                current_log = await dB.get_var(owner, "GRUPLOG")
-                if not current_log or int(current_log) != log:
-                    break
+        data = await dB.get_var(message.id, "DELETED")
+        if data:
+            if data.get("type") == "Group":
+                target = int(data["chat_id"])
+            else:
+                target = int(data["from_user"])
+            try:
+                is_deleted = await client.get_messages(target, message.id)
+            except Exception:
+                await dB.remove_var(message.id, "DELETED")
+                return
+            if is_deleted.empty == True:
                 try:
-                    await bot.send_message(
-                        chat_id=log, text="\n\n".join(lines),
-                        parse_mode=enums.ParseMode.HTML,
-                        disable_web_page_preview=True, reply_markup=button,
+                    tanggal = datetime.now(timezone("Asia/Jakarta")).strftime(
+                        "%Y-%m-%d %H:%M:%S"
                     )
-                    break
-                except FloodWait as error:
-                    if attempt == 2 or error.value > 60:
-                        logger.warning("gruplog: deleted terkena FloodWait; owner=%s", owner)
-                        break
-                    await asyncio.sleep(max(1, error.value) + 1)
+                    type = data["type"]
+                    if type == "Group":
+                        title = data["title"]
+                        chat_id = data["chat_id"]
+                        msg_text = data["message_text"]
+                        from_user = data["from_user"]
+                        user_link = data["user_link"]
+                        message_type = data["message_type"]
+                        message_link = data["message_link"]
+                        text = f"""
+#<b><u>Deleted Message in {type}</u></b>
 
-        except Exception as error:
-            logger.warning(
-                "gruplog: deleted gagal; owner=%s; message_id=%s; error=%s",
-                owner, getattr(message, "id", None), type(error).__name__,
-            )
+• <b>Name Group: {title}</b>
+• <b>ID Group:</b> <code>{chat_id}</code>
+• <b>From User: {user_link}</b>
+
+• <b>From User ID: `{from_user}`</b>
+
+• <b>Message:</b> <blockquote>{msg_text}</blockquote>
+• <b>Message Type:</b> <u><b>{message_type}</b></u>
+
+• <b>Date:</b> <b>{tanggal}</b>"""
+                    else:
+                        msg_text = data["message_text"]
+                        from_user = data["from_user"]
+                        user_link = data["user_link"]
+                        message_type = data["message_type"]
+                        message_link = data["message_link"]
+                        text = f"""
+#<b><u>Deleted Message in {type}</u></b>
+
+• <b>From User: {user_link}</b>
+• <b>From User ID: `{from_user}`</b>
+
+• <b>Message:</b> <blockquote>{msg_text}</blockquote>
+• <b>Message Type:</b> <u><b>{message_type}</b></u>
+
+• <b>Date:</b> <b>{tanggal}</b>"""
+
+                    button = ikb([[("Link Message", f"{message_link}", "url")]])
+                    try:
+                        await bot.send_message(int(log), text, reply_markup=button)
+                    except FloodWait as e:
+                        await asyncio.sleep(e.value)
+                        await bot.send_message(int(log), text, reply_markup=button)
+
+                except AttributeError:
+                    return
