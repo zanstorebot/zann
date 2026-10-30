@@ -398,7 +398,7 @@ async def create_userbots(client, message, is_trial=False):
                     [
                         (
                             "Cek Kadaluarsa",
-                            f"cek_masa_aktif {kn_client.me.id}", ButtonStyle.DANGER, "5413879192267805083",
+                            f"cek_masa_aktif {kn_client.me.id}", ButtonStyle.DANGER, "5283187967425268516",
                             "callback_data",
                         )
                     ]
