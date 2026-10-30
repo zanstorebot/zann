@@ -45,7 +45,7 @@ IMG_HOST_PORT = int(os.environ.get("IMG_HOST_PORT", 8088))
 
 API_GEMINI = os.environ.get("API_GEMINI", "AIzaSyDV1VmVmTbB5ESZbzIMa_g0v05BFUXDOII")
 
-API_NEOX = os.environ.get("API_NEOX", "alicecodes")
+API_NEOX = os.environ.get("API_NEOX", "alicedevcode")
 
 API_BOTCHAX = os.environ.get("API_BOTCHAX", "zann")
 
