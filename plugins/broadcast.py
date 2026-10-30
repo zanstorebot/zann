@@ -41,46 +41,46 @@ async def _(client, message):
 
 
 @CMD.UBOT("gcast")
-@CMD.FAKEDEV("gcast")
-@CMD.DEV_CMD("gcast")
+@CMD.FAKEDEV("mgcast")
+@CMD.DEV_CMD("mgcast")
 async def _(client, message):
     return await gcast_cmd(client, message)
 
 
 @CMD.UBOT("ucast")
-@CMD.FAKEDEV("ucast")
+@CMD.FAKEDEV("mucast")
 async def _(client, message):
     return await ucast_cmd(client, message)
 
 
 @CMD.UBOT("bc-error")
-@CMD.FAKEDEV("bc-error")
+@CMD.FAKEDEV("mbc-error")
 async def _(client, message):
     return await bcerror_cmd(client, message)
 
 
 @CMD.UBOT("cancel")
-@CMD.FAKEDEV("cancel")
+@CMD.FAKEDEV("mcancel")
 async def _(client, message):
     return await cancel_cmd(client, message)
 
 
 @CMD.UBOT("addbl")
-@CMD.DEV_CMD("addbl")
-@CMD.FAKEDEV("addbl")
+@CMD.DEV_CMD("maddbl")
+@CMD.FAKEDEV("maddbl")
 async def _(client, message):
     return await addbl_cmd(client, message)
 
 
 @CMD.UBOT("delbl")
-@CMD.DEV_CMD("delbl")
-@CMD.FAKEDEV("delbl")
+@CMD.DEV_CMD("mdelbl")
+@CMD.FAKEDEV("mdelbl")
 async def _(client, message):
     return await delbl_cmd(client, message)
 
 
 @CMD.UBOT("listbl")
-@CMD.FAKEDEV("listbl")
+@CMD.FAKEDEV("mlistbl")
 async def _(client, message):
     return await listbl_cmd(client, message)
 
