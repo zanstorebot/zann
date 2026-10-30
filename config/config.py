@@ -47,7 +47,7 @@ API_GEMINI = os.environ.get("API_GEMINI", "AIzaSyDV1VmVmTbB5ESZbzIMa_g0v05BFUXDO
 
 API_NEOX = os.environ.get("API_NEOX", "alicecodes")
 
-API_BOTCHAX = os.environ.get("API_BOTCHAX", "zanstore")
+API_BOTCHAX = os.environ.get("API_BOTCHAX", "zann")
 
 API_MAELYN = os.environ.get("API_MAELYN", "sk_ms_d3d4e5861511d73ddd7bda4c958d0daabd5d5793638e120c")
 
