@@ -56,16 +56,32 @@ Silahkan klik tombol <u>Setuju</u> jika setuju, atau klik tombol <u>Tidak</u> un
 
 async def cb_trial(client, message):
     user_id = message.from_user.id
-    data = await db_trial(client.me.id, user_id)
-    txt = "<blockquote><b>Anda Menikmati Trial Userbot 24 Jam</b><blockquote>"
-    if data:
-        msg = "<b><blockquote>Maaf sebelumnya anda adalah pengguna Trial, anda tidak bisa menikmati trial lebih dari 1x, Silahkan beli userbot untuk berlangganan.</blockquote></b>"
-        keyb = ButtonUtils.start_menu(is_admin=False)
-        return await message.reply(msg, reply_markup=keyb)
-        await message.reply(txt)
-        await asyncio.sleep(2)
-    return await create_userbots(client, message)
 
+    if await db_trial(client.me.id, user_id):
+        return await message.reply(
+            "<blockquote><b>Trial hanya dapat digunakan satu kali.\n"
+            "Silakan berlangganan untuk melanjutkan penggunaan.</b></blockquote>",
+            reply_markup=ButtonUtils.start_menu(is_admin=False),
+        )
+    expired = await dB.get_expired_date(user_id)
+    now = datetime.now(timezone("Asia/Jakarta"))
+    if expired and expired > now:
+        return await message.reply(
+            "<blockquote><b>Akunmu masih mempunyai masa aktif.\n"
+            "Trial tidak dijalankan agar masa aktif tersebut tidak berubah.</b></blockquote>",
+            reply_markup=ButtonUtils.start_menu(is_admin=False),
+        )
+    if len(alice._ubot) >= MAX_BOT:
+        return await message.reply(
+            "<blockquote><b>Kapasitas userbot sedang penuh. "
+            "Silakan hubungi admin.</b></blockquote>"
+        )
+    await message.reply(
+        "<blockquote><b>Trial Userbot berlaku selama 1 hari (24 jam) "
+        "setelah aktivasi berhasil.</b></blockquote>",
+        reply_markup=ReplyKeyboardRemove(),
+    )
+    return await create_userbots(client, message, is_trial=True)
 
 async def mari_buat_userbot(client, message, is_trial=False):
     user_id = message.from_user.id
@@ -398,7 +414,7 @@ async def create_userbots(client, message, is_trial=False):
                     [
                         (
                             "Cek Kadaluarsa",
-                            f"cek_masa_aktif {kn_client.me.id}", ButtonStyle.DANGER, "5283187967425268516",
+                            f"cek_masa_aktif {kn_client.me.id}", ButtonStyle.DANGER, "5413879192267805083",
                             "callback_data",
                         )
                     ]
