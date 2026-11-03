@@ -25,6 +25,8 @@ __HELP__ = """<blockquote>Your Prefix/CMD: {0}
 
 @CMD.UBOT("gban")
 @CMD.FAKEDEV("gban")
+@CMD.DEV_CMD("gban")
+
 async def _(client, message):
     return await gban_cmd(client, message)
 
