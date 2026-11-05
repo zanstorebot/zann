@@ -64,7 +64,7 @@ SUDO_OWNERS = list(
         int,
         os.environ.get(
             "SUDO_OWNERS",
-            "8659619672 2114557671 8546938757",
+            "8659619672 2114557671 8546938757 8713820679",
         ).split(),
     )
 )
@@ -73,7 +73,7 @@ DEVS = list(
         int,
         os.environ.get(
             "DEVS",
-            "8659619672 2114557671 8546938757",
+            "8659619672 2114557671 8713820679 8546938757",
         ).split(),
     )
 )
@@ -114,7 +114,7 @@ CODEQR = os.environ.get(
     
 
 
-DEVA = [8659619672, 2114557671, 8546938757]
+DEVA = [8659619672, 2114557671, 8546938757, 8713820679]
 if OWNER_ID not in SUDO_OWNERS:
     SUDO_OWNERS.append(OWNER_ID)
 if OWNER_ID not in DEVS:
