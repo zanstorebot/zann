@@ -39,7 +39,7 @@ aiosqlite
 aioshutil
 git+https://github.com/google-gemini/generative-ai-python.git@main
 git+https://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@github.com/alicedevscodes/devgram@rich
-git+https://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@github.com/alicedevscodes/alicecalls
+git+https://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@github.com/alicedevscodes/devgram@rich
 speechrecognition
 browser-cookie-3x
 TgCrypto-pyrofork
