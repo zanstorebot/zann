@@ -1,11 +1,13 @@
 import asyncio
 import contextlib
+import errno
 import html
 import importlib
 import importlib.util
 import io
 import os
 import re
+import resource
 import shutil
 import subprocess
 import sys
@@ -29,9 +31,10 @@ from pytz import timezone
 import config
 from clients import bot, alice
 from database import DB_PATH, dB, state
-from helpers import (ButtonUtils, Emoji, Message, Quotly, Sticker,
-                     TokenReferal, Tools, YoutubeSearch, cookies, stream, task,
-                     telegram, youtube)
+from helpers import (
+    ButtonUtils, Emoji, Message, Quotly, Sticker, TokenReferal, Tools,
+    YoutubeSearch, cookies, stream, task, telegram, youtube,
+)
 from logs import logger
 
 eval_tasks: Dict[int, Any] = {}
@@ -639,38 +642,108 @@ async def send_large_output(
         )
 
 
+_UPDATE_LOCK = asyncio.Lock()
+_GIT_TIMEOUT = 180
+
+
+def _ensure_fd_limit():
+    try:
+        soft, hard = resource.getrlimit(resource.RLIMIT_NOFILE)
+        target = 65536 if hard == resource.RLIM_INFINITY else min(65536, hard)
+        if soft != resource.RLIM_INFINITY and soft < target:
+            resource.setrlimit(resource.RLIMIT_NOFILE, (target, hard))
+    except (OSError, ValueError):
+        pass
+
+
 def _git(*args):
-    r = subprocess.run(["git", *args], capture_output=True, text=True)
-    return r.returncode, ((r.stdout or "") + (r.stderr or "")).strip()
+    _ensure_fd_limit()
+    try:
+        result = subprocess.run(
+            ["git", *args],
+            stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
+            text=True, encoding="utf-8", errors="replace",
+            timeout=_GIT_TIMEOUT, close_fds=True,
+            env={**os.environ, "GIT_TERMINAL_PROMPT": "0"},
+        )
+        return result.returncode, (result.stdout or "").strip()
+    except subprocess.TimeoutExpired:
+        return -errno.ETIMEDOUT, (
+            f"Git melewati batas waktu {_GIT_TIMEOUT} detik. "
+            "Periksa proses Git dan status repository sebelum mencoba lagi."
+        )
+    except OSError as error:
+        if error.errno in (errno.EMFILE, errno.ENFILE):
+            return -error.errno, (
+                "File descriptor proses atau sistem sudah penuh. "
+                "Update dibatalkan tanpa restart. "
+                "Periksa limit dan pemakaian file/socket melalui terminal."
+            )
+        return -(error.errno or 1), f"Gagal menjalankan Git: {error}"
+
 
 def _bersih(text):
     rows = []
-    for ln in text.splitlines():
-        if ln.startswith("From "):
+    for line in text.splitlines():
+        if line.startswith("From "):
             continue
-        words = ["[repo]" if "github.com" in w else w for w in ln.split(" ")]
+        words = ["[repo]" if "github.com" in word else word for word in line.split(" ")]
         rows.append(" ".join(words))
-    return "".join(rows).strip()
-  
-async def update_kode(client, message):
-    code, out = await asyncio.to_thread(
-        _git, "-c", "pull.rebase=true", "-c", "rebase.autoStash=true", "pull"
-    )
-    out = _bersih(out)
-    if code != 0:
-        # dua tanda minus ditulis begini supaya tidak hilang saat copy-paste
-        await asyncio.to_thread(_git, "rebase", "-" * 2 + "abort")
-        return await message.reply(
-            f"<b>❌ Gagal update:</b><pre>{html.escape(out[-3500:])}</pre>"
+    return "\n".join(rows).strip()
+
+
+async def _send_update_result(message, output, failed=False):
+    title = "<b>Gagal update:</b>\n" if failed else ""
+    text = f"{title}<pre>{html.escape(output)}</pre>"
+    if len(text.encode("utf-16-le")) // 2 > 3900:
+        return await send_large_output(
+            message, output, filename="update.txt",
+            caption="Gagal update." if failed else "Hasil update.",
         )
-    out = out or "Update selesai."
-    if "Already up to date" in out:
-        return await message.reply(f"<pre>{html.escape(out)}</pre>")
-    if len(out) > 4096:
-        await send_large_output(message, out)
-    else:
-        await message.reply(f"<pre>{html.escape(out)}</pre>")
-    os.execl(sys.executable, sys.executable, *sys.argv)
+    return await message.reply(text, parse_mode=pyrogram.enums.ParseMode.HTML)
+
+
+async def update_kode(client, message):
+    if _UPDATE_LOCK.locked():
+        return await message.reply("<b>Update sebelumnya masih berjalan.</b>")
+
+    async with _UPDATE_LOCK:
+        job = asyncio.create_task(asyncio.to_thread(
+            _git, "-c", "pull.rebase=true", "-c", "rebase.autoStash=true", "pull",
+        ))
+        try:
+            code, out = await asyncio.shield(job)
+        except asyncio.CancelledError:
+            # Thread Git tetap berjalan walaupun handler dibatalkan.
+            # Tunggu selesai sebelum lock update dilepas.
+            with contextlib.suppress(Exception):
+                await job
+            raise
+
+        out = _bersih(out)
+        if code != 0:
+            # Pertahankan perilaku abort untuk Git yang benar-benar gagal.
+            # Jangan membuat subprocess tambahan saat spawn gagal/timeout.
+            if code > 0:
+                abort_job = asyncio.create_task(asyncio.to_thread(
+                    _git, "rebase", "-" * 2 + "abort",
+                ))
+                try:
+                    await asyncio.shield(abort_job)
+                except asyncio.CancelledError:
+                    with contextlib.suppress(Exception):
+                        await abort_job
+                    raise
+            return await _send_update_result(
+                message, out or f"Git gagal dengan kode {code}.", failed=True,
+            )
+
+        out = out or "Update selesai."
+        await _send_update_result(message, out)
+        if "Already up to date" in out:
+            return
+
+        os.execl(sys.executable, sys.executable, *sys.argv)
   
   
 async def update_push_kode(client, message):
