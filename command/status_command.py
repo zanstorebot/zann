@@ -156,7 +156,7 @@ async def cek_status_akun(client, message):
             ),
             table(
                 [
-                    [cell(["AliceDevs Core v3.14 ", emo(5456140674028019486, "⚡")], align="center")],
+                    [cell(["zanstore v3.14 ", emo(5456140674028019486, "⚡")], align="center")],
                 ],
             ),
             divider(),
