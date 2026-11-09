@@ -869,8 +869,9 @@ async def ask_callback(client, callback):
 
     # tombol Alice Daily: boleh ditekan admin grup mana pun (bukan cuma si penanya)
     if action in ("dailyoff", "dailyon"):
-        return await _daily_toggle(client, callback, action == "dailyon")
-
+        return await callback.answer(
+            "Alice Daily dinonaktifkan.", show_alert=True,
+        )
     if callback.from_user.id != owner_id:
         return await callback.answer(
             "Jangan dipencet lagi ngobrol sama yang lain.", show_alert=True
@@ -1035,14 +1036,6 @@ async def ask_dispatch(client, message):
     if not message.from_user:
         return False
 
-    # Alice Daily: scheduler dijalankan otomatis (sekali) + simpan obrolan grup
-    start_daily(client)
-    if _is_group(message.chat):
-        try:
-            await _daily_store(client, message)
-        except Exception:
-            logger.error(traceback.format_exc())
-
     text = message.text or ""
     if text.startswith("/"):
         head = text.split(None, 1)[0][1:]
@@ -1098,7 +1091,7 @@ def _daily_track(chat_id, msg):
 
 
 async def _daily_enabled(chat_id):
-    return bool(await dB.get_var(chat_id, DAILY_KEY))
+    return False
 
 
 async def _daily_set(chat_id, enabled):
@@ -1268,7 +1261,4 @@ async def daily_scheduler(client):
 
 
 def start_daily(client):
-    """Jalankan scheduler sekali saja (aman dipanggil berulang)."""
-    global _DAILY_TASK
-    if _DAILY_TASK is None or _DAILY_TASK.done():
-        _DAILY_TASK = asyncio.create_task(daily_scheduler(client))
+    return None
