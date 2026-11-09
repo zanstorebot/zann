@@ -120,7 +120,11 @@ class Emoji:
     async def get(self):
         # Ambil data terbaru agar status Premium tidak menggunakan
         # cache lama dari client.me
-        self.me = await self.client.get_me()
+        self.me = getattr(self.client, "me", None)
+        if self.me is None:
+            raise RuntimeError(
+                "Identitas client belum tersedia. Jalankan helper Emoji setelah client selesai start."
+            )
         self._update_identity()
 
         await self.load_emoji()
