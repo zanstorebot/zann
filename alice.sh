@@ -26,6 +26,6 @@ pip3 uninstall -y opencv-python-headless || true
 pip3 install --upgrade opencv-python-headless
 
 echo "[4/4] env"
-cp peler.env .env
+cp zan.env .env
 
 echo -e "\n${R}Alice Setup Successfully${N}\n${G}Bash X to run bot${N}"
