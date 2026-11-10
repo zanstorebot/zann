@@ -1,98 +1,73 @@
 import asyncio
-import asyncio.events as _events
-
 import logging
 import os
-import random
 import re
-import socket
 import traceback
 from datetime import datetime
 from threading import Thread
 
 import croniter
-import psutil
 import uvicorn
-import uvloop
 from aiorun import run
 from fastapi import FastAPI
-from pyrogram.errors import (AuthKeyDuplicated, AuthKeyUnregistered,
-                             SessionRevoked, UserAlreadyParticipant,
-                             UserDeactivated, UserDeactivatedBan)
+from pyrogram.errors import (
+    AuthKeyDuplicated, AuthKeyUnregistered, SessionRevoked,
+    UserAlreadyParticipant, UserDeactivated, UserDeactivatedBan,
+)
 from pytz import timezone
 
-from clients import UserBot, bot, alice
+from clients import UserBot, alice, bot
 from config import BOT_ID, LOG_SELLER, OWNER_ID, WAJIB_JOIN
 from database import dB
-from helpers import (AutoBC, AutoFW, CheckUsers, CleanAcces, ExpiredUser,
-                     ReadUser, Tools, installPeer)
+from helpers import CheckUsers, CleanAcces, ExpiredUser, Tools
 from logs import logger
 
-# Policy tanpa child watcher (mis. uvloop) membuat asyncio.create_subprocess_exec
-# gagal dengan NotImplementedError (dipakai pytgcalls untuk ffmpeg).
-_CHILD_WATCHER = asyncio.ThreadedChildWatcher()
-_events.AbstractEventLoopPolicy.get_child_watcher = lambda self: _CHILD_WATCHER
-
-asyncio.set_event_loop_policy(asyncio.DefaultEventLoopPolicy())
-loop = asyncio.new_event_loop()
-asyncio.set_event_loop(loop)
-
-
-# ---------------------------------------------------------------------------
-# WARNA LOG: prefix "AliceCore[INFO]:" jadi biru
-# ---------------------------------------------------------------------------
-LOG_BLUE = "\033[94m"      # nama "AliceCore". Biru lebih gelap: "\033[34m"
-LOG_RED = "\033[91m"       # tulisan "[INFO]". Merah lebih gelap: "\033[31m"
+LOG_BLUE = "\033[94m"
+LOG_RED = "\033[91m"
 LOG_RESET = "\033[0m"
 _ANSI_RE = re.compile(r"\x1b\[[0-9;]*m")
 _PREFIX_RE = re.compile(r"^AliceCore(\[INFO\]):")
 
+STARTUP_CONCURRENCY = 3
+BACKGROUND_TASKS = set()
+list_error = []
+_shutdown_started = False
+app = FastAPI()
+
 
 class BlueInfoFormatter(logging.Formatter):
-    """Membungkus formatter lama. Hanya log INFO dari logger 'AliceCore' yang
-    diubah: warna lama dibuang, 'AliceCore' jadi biru dan '[INFO]' jadi merah."""
-
     def __init__(self, base):
         super().__init__()
         self.base = base
 
     def format(self, record):
-        msg = self.base.format(record)
+        message = self.base.format(record)
         if record.name == "AliceCore" and record.levelno == logging.INFO:
-            clean = _ANSI_RE.sub("", msg)
-            m = _PREFIX_RE.match(clean)
-            if m:
+            clean = _ANSI_RE.sub("", message)
+            match = _PREFIX_RE.match(clean)
+            if match:
                 return (
                     f"{LOG_BLUE}AliceCore{LOG_RESET}"
-                    f"{LOG_RED}{m.group(1)}{LOG_RESET}"
-                    f":{clean[m.end():]}"
+                    f"{LOG_RED}{match.group(1)}{LOG_RESET}:{clean[match.end():]}"
                 )
-        return msg
+        return message
 
 
 def apply_blue_logs():
-    """Pasang formatter biru ke handler console. Aman dipanggil berulang."""
     seen = set()
-    candidates = [logging.getLogger(), logging.getLogger("AliceCore")]
-    for lg in candidates:
-        for h in lg.handlers:
-            if id(h) in seen:
+    for log in (logging.getLogger(), logging.getLogger("AliceCore")):
+        for handler in log.handlers:
+            if id(handler) in seen:
                 continue
-            seen.add(id(h))
-            # hanya console, file log tidak diberi kode warna
-            if isinstance(h, logging.FileHandler):
+            seen.add(id(handler))
+            if isinstance(handler, logging.FileHandler):
                 continue
-            if not isinstance(h, logging.StreamHandler):
+            if not isinstance(handler, logging.StreamHandler):
                 continue
-            if isinstance(h.formatter, BlueInfoFormatter):
-                continue
-            h.setFormatter(BlueInfoFormatter(h.formatter or logging.Formatter()))
-
-
-apply_blue_logs()
-
-
-app = FastAPI()
+            if not isinstance(handler.formatter, BlueInfoFormatter):
+                handler.setFormatter(
+                    BlueInfoFormatter(handler.formatter or logging.Formatter())
+                )
 
 
 @app.get("/")
@@ -100,232 +75,261 @@ async def root():
     return {"message": "Userbot API running"}
 
 
-def find_free_port(start=7860, end=8000):
-    ports = list(range(start, end))
-    random.shuffle(ports)
-    for port in ports:
-        with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
-            if s.connect_ex(("localhost", port)) != 0:
-                return port
-    return None
-
-
-def kill_process_on_port(port):
-    for proc in psutil.process_iter(["pid", "name", "connections"]):
-        try:
-            for conn in proc.info["connections"]:
-                if conn.status == psutil.CONN_LISTEN and conn.laddr.port == port:
-                    logger.info(f"⚠️ Killing process {proc.info['pid']} on port {port}")
-                    proc.kill()
-                    return True
-        except (psutil.AccessDenied, psutil.NoSuchProcess):
-            continue
-    return False
-
-
 def start_api():
-    port_env_var = f"API_PORT_{BOT_ID}"
-    port = os.environ.get(port_env_var)
-
-    if port:
-        port = int(port)
-    else:
-        port = find_free_port()
-        os.environ[port_env_var] = str(port)
+    key = f"API_PORT_{BOT_ID}"
     try:
-        logger.info(f"🚀 Starting API for bot {BOT_ID} on port {port}")
-        uvicorn.run("src:app", host="0.0.0.0", port=port, log_level="info")
-    except OSError as e:
-        if e.errno == 98:
-            logger.info(f"❗ Port {port} is in use. Attempting to kill...")
-            if kill_process_on_port(port):
-                logger.info(f"✅ Port {port} is now free. Restarting API...")
-                uvicorn.run("src:app", host="0.0.0.0", port=port, log_level="info")
-            else:
-                logger.info(f"❌ Gagal membebaskan port {port}. Gagal start API.")
-        else:
-            raise
+        port = int(os.environ.get(key, "7860"))
+        if not 1 <= port <= 65535:
+            raise ValueError("Port harus berada di antara 1 dan 65535")
+        logger.info(f"Starting API for bot {BOT_ID} on port {port}")
+        uvicorn.run(
+            app, host="0.0.0.0", port=port, loop="asyncio",
+            log_level="warning", access_log=False,
+        )
+    except (Exception, SystemExit) as exc:
+        logger.error(f"API gagal berjalan: {exc}")
 
 
-list_error = []
+async def notify(chat_id, text):
+    try:
+        await bot.send_message(chat_id, text)
+    except asyncio.CancelledError:
+        raise
+    except Exception as exc:
+        logger.warning(f"Gagal mengirim notifikasi ke {chat_id}: {exc}")
+
+
+def background_done(task):
+    BACKGROUND_TASKS.discard(task)
+    if task.cancelled():
+        return
+    error = task.exception()
+    if error:
+        logger.error(
+            f"Background task {task.get_name()} berhenti: {error}",
+            exc_info=(type(error), error, error.__traceback__),
+        )
+
+
+def start_background(coroutine, name):
+    task = asyncio.create_task(coroutine, name=name)
+    BACKGROUND_TASKS.add(task)
+    task.add_done_callback(background_done)
+    return task
 
 
 async def cleanup_total(ubot_id):
-    """Clean up database records for a specific userbot."""
     try:
         await dB.remove_ubot(ubot_id)
         logger.info(f"Deleted user {ubot_id}")
-    except Exception as e:
-        logger.error(f"Failed to cleanup userbot {ubot_id}: {e}")
+    except Exception as exc:
+        logger.error(f"Failed to cleanup userbot {ubot_id}: {exc}")
 
 
 async def auto_restart():
     tz = timezone("Asia/Jakarta")
     cron = croniter.croniter("45 01 * * *", datetime.now(tz))
     while True:
-        now = datetime.now(tz)
         next_run = cron.get_next(datetime)
-
-        wait_time = (next_run - now).total_seconds()
-        await asyncio.sleep(wait_time)
-        try:
-            await bot.send_message(
-                OWNER_ID,
-                "<blockquote><b>Restart Daily..\n\nTunggu beberapa menit bot sedang di Restart!!</b></blockquote>",
-            )
-
-            await stop_main()
-            os.execl("/bin/bash", "bash", "start.sh")
-        except Exception as e:
-            logger.error(f"Error during restart: {e}")
+        await asyncio.sleep(max(0, (next_run - datetime.now(tz)).total_seconds()))
+        await notify(
+            OWNER_ID,
+            "<blockquote><b>Restart Daily..\n\n"
+            "Tunggu beberapa menit bot sedang di Restart!!</b></blockquote>",
+        )
+        await stop_main()
+        os.execl("/bin/bash", "bash", "start.sh")
 
 
 async def handle_start_error():
-    if list_error:
-        for data in list_error:
-            ubot = data["user"]
-            reason = data["error_msg"]
-            await bot.send_message(
-                LOG_SELLER,
-                f"<b>Userbot {ubot} failed to start due to {reason}, deleted user on database</b>",
-            )
-            try:
-                await bot.send_message(
-                    int(ubot), f"<b>Userbot anda telah dihapus karna {reason}.</b>"
-                )
-            except Exception:
-                pass
-            await cleanup_total(ubot)
+    for data in list_error:
+        user_id = data["user"]
+        reason = data["error_msg"]
+        await notify(
+            LOG_SELLER,
+            f"<b>Userbot {user_id} failed to start due to {reason}, "
+            "deleted user on database</b>",
+        )
+        await notify(
+            user_id, f"<b>Userbot anda telah dihapus karna {reason}.</b>"
+        )
+        await cleanup_total(user_id)
+    list_error.clear()
+
+
+async def discard_failed_client(client):
+    if getattr(client, "is_initialized", False):
+        try:
+            await client.stop()
+        except Exception:
+            logger.warning("Gagal menutup client setelah startup gagal")
+
+    group_call = getattr(client, "group_call", None)
+    if group_call is not None:
+        try:
+            await group_call.stop()
+        except Exception:
+            pass
+
+    if client in alice._ubot:
+        alice._ubot.remove(client)
+        user_id = getattr(getattr(client, "me", None), "id", None)
+        if user_id in alice._get_my_id:
+            alice._get_my_id.remove(user_id)
 
 
 async def start_ubot(ubot):
-    """Start a userbot instance and handle setup."""
-    from command import register_antiucast  # import di dalam fungsi, hindari circular import
+    from command import register_antiucast
 
     userbot = UserBot(**ubot)
     try:
         await userbot.start()
-        try:
-            register_antiucast(userbot)
-        except Exception:
-            logger.error(f"Antiucast gagal didaftarkan: {traceback.format_exc()}")
-        for chat in WAJIB_JOIN:
-            try:
-                await userbot.join_chat(chat)
-            except UserAlreadyParticipant:
-                pass
-            except Exception:
-                continue
     except (AuthKeyUnregistered, AuthKeyDuplicated, SessionRevoked):
-        reason = "Session Ended"
-        data = {"user": int(ubot["name"]), "error_msg": reason}
-        list_error.append(data)
+        list_error.append({
+            "user": int(ubot["name"]), "error_msg": "Session Ended",
+        })
+        await discard_failed_client(userbot)
+        return False
     except (UserDeactivated, UserDeactivatedBan):
-        reason = "Account Banned by Telegram"
-        data = {"user": int(ubot["name"]), "error_msg": reason}
-        list_error.append(data)
-
-
-async def start_main_bot():
-    """Start the main bot after userbots."""
-    logger.info("🤖 Starting main bot...")
-    await bot.start()
-    await bot.add_reseller()
-    logger.info("✅ Main bot started successfully.")
-    total_bots = len(alice._ubot)
-    message = "🔥**Bot berhasil diaktifkan**🔥\n" f"✅ **Total User: {total_bots}**"
-    await dB.set_var(bot.id, "total_users", total_bots)
-    try:
-        await bot.send_message(OWNER_ID, f"<blockquote>{message}</blockquote>")
+        list_error.append({
+            "user": int(ubot["name"]),
+            "error_msg": "Account Banned by Telegram",
+        })
+        await discard_failed_client(userbot)
+        return False
+    except asyncio.CancelledError:
+        raise
     except Exception:
-        pass
+        logger.error(
+            f"Startup userbot {ubot.get('name')} gagal; data tidak dihapus:\n"
+            f"{traceback.format_exc()}"
+        )
+        await discard_failed_client(userbot)
+        return False
+
+    try:
+        register_antiucast(userbot)
+    except Exception:
+        logger.error(f"Antiucast gagal didaftarkan:\n{traceback.format_exc()}")
+
+    for chat in WAJIB_JOIN:
+        try:
+            await userbot.join_chat(chat)
+        except UserAlreadyParticipant:
+            pass
+        except asyncio.CancelledError:
+            raise
+        except Exception as exc:
+            logger.warning(f"Wajib join {userbot.me.id} ke {chat} gagal: {exc}")
+        await asyncio.sleep(0.5)
+    return True
 
 
 async def start_userbots():
-    logger.info("🔄 Starting userbots...")
+    logger.info("Starting userbots with limited concurrency...")
     userbots = await dB.get_userbots()
-    tasks = [asyncio.create_task(start_ubot(ubot)) for ubot in userbots]
-    await asyncio.gather(*tasks, return_exceptions=False)
-    logger.info("✅ All userbots started successfully.")
+    semaphore = asyncio.Semaphore(STARTUP_CONCURRENCY)
+
+    async def limited_start(data):
+        async with semaphore:
+            result = await start_ubot(data)
+            await asyncio.sleep(0.5)
+            return result
+
+    results = await asyncio.gather(*(limited_start(data) for data in userbots))
+    successful = sum(results)
+    logger.info(
+        f"Startup selesai: {successful}/{len(results)} userbot berhasil, "
+        f"{len(results) - successful} gagal."
+    )
+
+
+async def start_main_bot():
+    logger.info("Starting main bot...")
+    await bot.start()
+    await bot.add_reseller()
+    total = len(alice._ubot)
+    await dB.set_var(bot.id, "total_users", total)
+    await notify(
+        OWNER_ID,
+        "<blockquote><b>Bot berhasil diaktifkan\n"
+        f"Total User: {total}</b></blockquote>",
+    )
+    logger.info("Main bot started successfully.")
 
 
 async def task_2():
-    background_tasks = [
-        ExpiredUser(),
-        installPeer(),
-        CheckUsers(),
-        CleanAcces(),
-        auto_restart(),
-    ]
-    for task in background_tasks:
-        asyncio.create_task(task)
-    logger.info(f"Started {len(background_tasks)} background tasks 2")
-
-
-async def task_1():
-    await AutoBC()
-    await ReadUser()
-    await AutoFW()
-    logger.info(f"Started background tasks 1")
+    for name, coroutine in (
+        ("expired-users", ExpiredUser()),
+        ("check-users", CheckUsers()),
+        ("clean-access", CleanAcces()),
+        ("daily-restart", auto_restart()),
+    ):
+        start_background(coroutine, name)
+    logger.info("Started 4 maintenance tasks; startup dialog scan disabled.")
 
 
 async def stop_main():
-    tasks = [t for t in asyncio.all_tasks() if t is not asyncio.current_task()]
-    logger.info(f"📌 Total task yang akan dihentikan: {len(tasks)}")
-
-    if not tasks:
-        logger.info("✅ Tidak ada task yang berjalan.")
+    global _shutdown_started
+    if _shutdown_started:
         return
+    _shutdown_started = True
+    current = asyncio.current_task()
 
-    for task in tasks:
-        if not task.done():
+    try:
+        tasks = [
+            task for task in tuple(BACKGROUND_TASKS)
+            if task is not current and not task.done()
+        ]
+        for task in tasks:
             task.cancel()
+        if tasks:
+            await asyncio.gather(*tasks, return_exceptions=True)
 
-    await asyncio.sleep(1)
+        async def stop_client(client):
+            group_call = getattr(client, "group_call", None)
+            if group_call is not None:
+                try:
+                    await asyncio.wait_for(group_call.stop(), timeout=10)
+                except Exception as exc:
+                    logger.warning(f"Gagal menutup group call: {exc}")
+            if getattr(client, "is_initialized", False):
+                try:
+                    await asyncio.wait_for(client.stop(), timeout=15)
+                except Exception as exc:
+                    logger.warning(f"Gagal menutup client {client.name}: {exc}")
 
-    results = []
-    for task in tasks:
+        for client in tuple(alice._ubot):
+            await stop_client(client)
+        await stop_client(bot)
+    finally:
         try:
-            result = await asyncio.wait_for(asyncio.shield(task), timeout=5)
-            results.append(result)
-        except asyncio.TimeoutError:
-            logger.error(
-                f"⏳ Timeout saat menghentikan task: {task.get_name() or task}"
-            )
-            results.append(None)
-        except asyncio.CancelledError:
-            continue
-        except Exception as e:
-            logger.error(f"⚠️ Task {task.get_name() or task} mengalami error: {e}")
-
-    logger.info("⚠️ Menutup database...")
-    await Tools.close_fetch()
-    await dB.close()
-    logger.info("✅ Semua task dihentikan dan database telah ditutup.")
+            await Tools.close_fetch()
+        except Exception as exc:
+            logger.warning(f"Gagal menutup HTTP client: {exc}")
+        try:
+            await dB.close()
+        except Exception as exc:
+            logger.warning(f"Gagal menutup database: {exc}")
+        logger.info("Shutdown selesai.")
 
 
 async def main():
+    apply_blue_logs()
     try:
-        apply_blue_logs()   # jaga-jaga kalau handler log baru dibuat setelah import
         await dB.initialize()
-        api_thread = Thread(target=start_api, daemon=True)
-        api_thread.start()
+        Thread(target=start_api, name="userbot-api", daemon=True).start()
         await start_userbots()
         await start_main_bot()
-        await task_1()
         await task_2()
         await handle_start_error()
-
     except asyncio.CancelledError:
-        logger.warning("Stopped All.")
+        raise
     except Exception:
-        logger.error(f"{traceback.format_exc()}")
+        logger.error(f"Startup gagal:\n{traceback.format_exc()}")
+        await stop_main()
+        raise
 
 
 if __name__ == "__main__":
-
-    run(
-        main(),
-        loop=bot.loop,
-        shutdown_callback=stop_main(),
-    )
+    run(main(), loop=bot.loop, shutdown_callback=stop_main())
