@@ -1,14 +1,49 @@
+import asyncio
 import random
+from collections import OrderedDict
+from time import monotonic
 
 from pyrogram import enums
 
 import config
-from database import dB, state
+from clients import alice
+from database import dB
 from helpers import Tools
+from logs import logger
+
+HISTORY_LIMIT = 24
+HISTORY_MAX_CHATS = 256
+HISTORY_TTL = 3600
+CHATBOT_MAX_ACTIVE = 3
+CHATBOT_COOLDOWN = 3
+CHATBOT_TIMEOUT = 45
+
+_chat_history = OrderedDict()
+_chatbot_busy = set()
+_chatbot_recent = OrderedDict()
+
+
+def _history_key(client, chat_id, user_id):
+    return client, chat_id, user_id
+
+
+def _prune_history():
+    now = monotonic()
+    while _chat_history:
+        key = next(iter(_chat_history))
+        timestamp, _ = _chat_history[key]
+        if now - timestamp < HISTORY_TTL:
+            break
+        _chat_history.popitem(last=False)
+
+    while len(_chat_history) > HISTORY_MAX_CHATS:
+        _chat_history.popitem(last=False)
 
 
 async def add_auto_text(message):
     data = message.reply_to_message or message
+    if not data.text:
+        return
     auto_text = await dB.get_var(config.BOT_ID, "CHATBOT_TEXT") or []
     auto_text.append(data.text)
     await dB.set_var(config.BOT_ID, "CHATBOT_TEXT", auto_text)
@@ -16,20 +51,30 @@ async def add_auto_text(message):
 
 async def get_random_text():
     entries = await dB.get_var(config.BOT_ID, "CHATBOT_TEXT") or []
-    return [e for e in entries]
+    return [entry for entry in entries if isinstance(entry, str) and entry.strip()]
 
 
 async def get_chat_history(client, chat_id, user_id):
-    key = f"chat_history_{chat_id}_{user_id}"
-    return state.get(client, key) or []
+    _prune_history()
+    key = _history_key(client, chat_id, user_id)
+    entry = _chat_history.get(key)
+    if entry is None:
+        return []
+    _, history = entry
+    _chat_history[key] = (monotonic(), history)
+    _chat_history.move_to_end(key)
+    return list(history)
 
 
 async def add_to_chat_history(client, chat_id, user_id, role, message):
-    key = f"chat_history_{chat_id}_{user_id}"
+    if not isinstance(message, str) or not message.strip():
+        return
+    key = _history_key(client, chat_id, user_id)
     history = await get_chat_history(client, chat_id, user_id)
     history.append({"role": role, "content": message})
-    history = history[-500:]
-    state.set(client, key, history)
+    _chat_history[key] = (monotonic(), history[-HISTORY_LIMIT:])
+    _chat_history.move_to_end(key)
+    _prune_history()
 
 
 async def gen_text(client, message):
@@ -39,7 +84,6 @@ async def gen_text(client, message):
 
     role_default = f"lu adalah karakter bernama {client.me.first_name}. lu asik orang nya dan cool..."
     role = await dB.get_var(client.me.id, "ROLE_CHATBOT") or role_default
-
     history = await get_chat_history(client.me.id, chat_id, user_id)
 
     messages = [{"role": "system", "content": role}] + history
@@ -47,10 +91,14 @@ async def gen_text(client, message):
 
     url = "https://api.botcahx.eu.org/api/search/openai-custom-v2"
     payload = {"message": messages, "apikey": f"{config.API_BOTCHAX}"}
-    res = await Tools.fetch.post(url, json=payload)
+    res = await asyncio.wait_for(
+        Tools.fetch.post(url, json=payload), timeout=CHATBOT_TIMEOUT
+    )
 
     if res.status_code == 200:
         result = res.json().get("result")
+        if not isinstance(result, str) or not result.strip():
+            return None
         await add_to_chat_history(client.me.id, chat_id, user_id, "user", text)
         await add_to_chat_history(client.me.id, chat_id, user_id, "assistant", result)
         return result
@@ -109,8 +157,9 @@ async def chatbot_cmd(client, message):
         msg = ""
         for num, chat in enumerate(chats, 1):
             try:
-                title = (await client.get_chat(chat)).title
-                ids = (await client.get_chat(chat)).id
+                info = await client.get_chat(chat)
+                title = info.title
+                ids = info.id
             except Exception:
                 continue
             msg += f"<b>{num}. {title} | `{ids}`</b>"
@@ -131,21 +180,77 @@ async def chatbot_cmd(client, message):
 
 
 async def chatbot_trigger(client, message):
-    if message.chat.id not in await dB.get_list_from_var(client.me.id, "CHATBOT"):
-        return
+    user = message.from_user
+    reply = message.reply_to_message
     text = message.text or message.caption
-    if text:
-        if message.reply_to_message:
-            if message.reply_to_message.from_user.id == client.me.id:
-                await client.send_chat_action(
-                    chat_id=message.chat.id, action=enums.ChatAction.TYPING
+
+    if not text or not user or user.is_bot or user.is_self:
+        return
+    if user.id in alice._get_my_id:
+        return
+    if not reply or not reply.from_user:
+        return
+    if reply.from_user.id != client.me.id:
+        return
+
+    key = _history_key(client.me.id, message.chat.id, user.id)
+    now = monotonic()
+    if key in _chatbot_busy or len(_chatbot_busy) >= CHATBOT_MAX_ACTIVE:
+        return
+    if now - _chatbot_recent.get(key, float("-inf")) < CHATBOT_COOLDOWN:
+        return
+
+    _chatbot_busy.add(key)
+    _chatbot_recent[key] = now
+    _chatbot_recent.move_to_end(key)
+    while len(_chatbot_recent) > HISTORY_MAX_CHATS:
+        _chatbot_recent.popitem(last=False)
+
+    typing = False
+    try:
+        chats = await dB.get_list_from_var(client.me.id, "CHATBOT") or []
+        if message.chat.id not in chats:
+            return
+
+        try:
+            await client.send_chat_action(
+                chat_id=message.chat.id, action=enums.ChatAction.TYPING
+            )
+            typing = True
+        except Exception:
+            pass
+
+        try:
+            data = await gen_text(client, message)
+        except asyncio.TimeoutError:
+            logger.warning(f"Chatbot timeout: {client.me.id}/{message.chat.id}")
+            data = None
+        except asyncio.CancelledError:
+            raise
+        except Exception:
+            logger.exception(f"Chatbot request gagal: {client.me.id}/{message.chat.id}")
+            data = None
+
+        if data is None:
+            entries = await get_random_text()
+            if not entries:
+                return
+            data = random.choice(entries)
+
+        await message.reply(data)
+    except asyncio.CancelledError:
+        raise
+    except Exception:
+        logger.exception(f"Chatbot handler gagal: {client.me.id}/{message.chat.id}")
+    finally:
+        _chatbot_busy.discard(key)
+        if typing:
+            try:
+                await asyncio.wait_for(
+                    client.send_chat_action(
+                        chat_id=message.chat.id, action=enums.ChatAction.CANCEL
+                    ),
+                    timeout=3,
                 )
-                data = await gen_text(client, message)
-                if data is not None:
-                    await message.reply(data)
-                else:
-                    data = await get_random_text()
-                    await message.reply(random.choice(data))
-                await client.send_chat_action(
-                    chat_id=message.chat.id, action=enums.ChatAction.CANCEL
-                )
+            except Exception:
+                pass
