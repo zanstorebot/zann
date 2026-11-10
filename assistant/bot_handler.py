@@ -1,12 +1,8 @@
 import traceback
-import asyncio
-from command.ask_command import daily_on_added, daily_scheduler, _daily_store
 
 from pyrogram import filters
 from clients import bot
 from command import (
-    ask_command,
-    ask_dispatch,
     addtoken_cmd,
     deltoken_cmd,
     cektoken_cmd,
@@ -57,8 +53,6 @@ from logs import logger
 
 @CMD.BOT(
     [
-        "ask",
-        "tanya",
         "addtoken",
         "deltoken",
         "cektoken",
@@ -112,8 +106,6 @@ async def _(client, message):
         logger.info(f"Bot command:{command}")
         if command[0] == "restart":
             return await restart_userbot(client, message)
-        elif command[0] in ["ask", "tanya"]:
-            return await ask_command(client, message)
         elif command[0] == "addtoken":
             return await addtoken_cmd(client, message)
         elif command[0] == "deltoken":
@@ -204,25 +196,3 @@ async def _(client, message):
 @CMD.CHAT_FORWARD("OUTGOING", bot)
 async def _(client, message):
     return await outgoing_reply(client, message)
-
-
-@bot.on_message(
-    filters.text & ~filters.regex(r"^s*/"),
-    group=99,
-)
-async def ask_followup_handler(client, message):
-    try:
-        await _daily_store(client, message)
-        if await ask_dispatch(client, message):
-            return
-    except Exception:
-        logger.error(f"Error ask followup: {traceback.format_exc()}")
-
-@bot.on_chat_member_updated()
-async def daily_added_handler(client, update):
-    try:
-        new_member = update.new_chat_member
-        if new_member and new_member.user.id == client.me.id:
-            await daily_on_added(client, update)
-    except Exception:
-        logger.error(f"Daily added error: {traceback.format_exc()}")
