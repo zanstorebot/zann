@@ -25,9 +25,6 @@ from .anims_command import (adadino_cmd, ange_cmd, anjg_cmd, awk_cmd, babi_cmd,
                             sponge_cmd, syg_cmd, tank_cmd, tembak_cmd, tq_cmd,
                             ysaja_cmd, hah_cmd, fvck_cmd, entod_cmd, hot_cmd, lopyu_cmd)
 from .asupan_command import asupan_cmd, ppcp_cmd
-from .autobc_command import autobc_cmd
-from .autofw_command import autofw_cmd
-from .autoread_command import autoread_cmd
 from .autoreply_command import autoreply_cmd, mentioned_trigger
 from .broadcast_command import (addbcdb_cmd, addbl_cmd, bc_cmd, bcerror_cmd,
                                 cancel_cmd, delbcdb_cmd, delbl_cmd, gcast_cmd,
